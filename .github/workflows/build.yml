@@ -1,0 +1,253 @@
+name: Build JARVIS APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Create Android project
+        shell: bash
+        run: |
+          mkdir -p app/src/main/java/com/jarvis/assistant
+          mkdir -p app/src/main/res/values
+
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "JARVIS"
+          include(":app")
+          EOF
+
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+          }
+          EOF
+
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.jarvis.assistant"
+              compileSdk = 35
+
+              defaultConfig {
+                  applicationId = "com.jarvis.assistant"
+                  minSdk = 23
+                  targetSdk = 35
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+              <uses-permission android:name="android.permission.INTERNET"/>
+
+              <application
+                  android:theme="@style/AppTheme"
+                  android:label="JARVIS">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+
+                  </activity>
+              </application>
+
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:colorAccent">#2196F3</item>
+                  <item name="android:navigationBarColor">#000000</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/java/com/jarvis/assistant/MainActivity.kt <<'EOF'
+          package com.jarvis.assistant
+
+          import android.Manifest
+          import android.app.Activity
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.os.Bundle
+          import android.speech.RecognizerIntent
+          import android.speech.tts.TextToSpeech
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.TextView
+          import java.util.Locale
+
+          class MainActivity : Activity(), TextToSpeech.OnInitListener {
+
+              private lateinit var tts: TextToSpeech
+              private lateinit var status: TextView
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  tts = TextToSpeech(this, this)
+
+                  val layout = LinearLayout(this)
+                  layout.orientation = LinearLayout.VERTICAL
+                  layout.setPadding(40, 60, 40, 40)
+
+                  val title = TextView(this)
+                  title.text = "🤖 JARVIS"
+                  title.textSize = 32f
+
+                  status = TextView(this)
+                  status.text = "નમસ્તે! મને બોલીને command આપો."
+                  status.textSize = 20f
+                  status.setPadding(0, 40, 0, 40)
+
+                  val button = Button(this)
+                  button.text = "🎤 બોલો / Speak"
+
+                  button.setOnClickListener {
+                      startVoiceRecognition()
+                  }
+
+                  layout.addView(title)
+                  layout.addView(status)
+                  layout.addView(button)
+
+                  setContentView(layout)
+
+                  if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                      != PackageManager.PERMISSION_GRANTED) {
+                      requestPermissions(
+                          arrayOf(Manifest.permission.RECORD_AUDIO),
+                          100
+                      )
+                  }
+              }
+
+              private fun startVoiceRecognition() {
+                  val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                  intent.putExtra(
+                      RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                      RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                  )
+                  intent.putExtra(
+                      RecognizerIntent.EXTRA_LANGUAGE,
+                      "gu-IN"
+                  )
+
+                  try {
+                      startActivityForResult(intent, 101)
+                  } catch (e: Exception) {
+                      status.text = "Voice recognition ઉપલબ્ધ નથી."
+                  }
+              }
+
+              override fun onActivityResult(
+                  requestCode: Int,
+                  resultCode: Int,
+                  data: Intent?
+              ) {
+                  super.onActivityResult(requestCode, resultCode, data)
+
+                  if (requestCode == 101 && resultCode == RESULT_OK) {
+                      val results =
+                          data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+
+                      val command = results?.firstOrNull() ?: return
+
+                      status.text = "તમે કહ્યું: $command"
+
+                      val reply = when {
+                          command.contains("હેલો") ||
+                          command.contains("હાય") ||
+                          command.contains("hello", true) ||
+                          command.contains("hi", true) ->
+                              "નમસ્તે! હું JARVIS છું."
+
+                          command.contains("કેમ છો") ||
+                          command.contains("कैसे हो") ->
+                              "હું તૈયાર છું. તમે શું કામ કરાવવા માંગો છો?"
+
+                          else ->
+                              "તમારી command મને મળી: $command"
+                      }
+
+                      speak(reply)
+                  }
+              }
+
+              private fun speak(text: String) {
+                  tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "JARVIS")
+              }
+
+              override fun onInit(statusCode: Int) {
+                  if (statusCode == TextToSpeech.SUCCESS) {
+                      tts.language = Locale("gu", "IN")
+                  }
+              }
+
+              override fun onDestroy() {
+                  tts.stop()
+                  tts.shutdown()
+                  super.onDestroy()
+              }
+          }
+          EOF
+
+      - name: Build APK
+        run: gradle assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
