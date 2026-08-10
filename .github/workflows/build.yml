@@ -78,6 +78,7 @@ jobs:
           }
           EOF
 
+
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
